@@ -1,42 +1,80 @@
-import csv
-import time
+import json
+from kafka import KafkaConsumer
 
-print("=" * 40)
-print("      ATMOSYNC CONSUMER")
-print("=" * 40)
+TEMP_HIGH_LIMIT = 5.0
+BATTERY_LOW_LIMIT = 85
+VIBRATION_HIGH_LIMIT = 10
 
-with open("sensor_data.csv", "r") as file:
+# Flag to toggle real database connectivity later
+IS_SNOWFLAKE_CONNECTED = False 
 
-    reader = csv.DictReader(file)
+consumer = KafkaConsumer(
+    'sensor_telemetry',
+    bootstrap_servers=['localhost:9092'],
+    auto_offset_reset='latest',
+    value_deserializer=lambda x: json.loads(x.decode('utf-8'))
+)
 
-    count = 1
+print("\n" + "="*50)
+print("      ATMOSYNC CONSUMER: SENSOR MONITOR        ")
+print("="*50)
 
-    for row in reader:
+count = 0
 
+for message in consumer:
+    count += 1
+    record = message.value
+    
+    container_id = record.get("Container_ID", "UNKNOWN")
+    
+    # Safe numerical conversions
+    try:
+        temp = float(record.get("Temperature", 0.0))
+    except (ValueError, TypeError):
+        temp = 0.5
 
-        print("\nReceiving data from Producer...")
-        print(f"\nReceived Record {count}")
-        print("-" * 30)
+    try:
+        humidity = float(record.get("Humidity", 0.0))
+    except (ValueError, TypeError):
+        humidity = 0.0
 
-        print("Container_ID :", row["Container ID"])
-        print("Commodity    :", row["Commodity"])
-        print("Temperature  :", row["Temperature"])
-        print("Humidity     :", row["Humidity"])
-        print("Vibration    :", row["Vibration"])
-        print("Battery      :", row["Battery"])
-        print("Timestamp    :", row["Timestamp"])
+    try:
+        vibration = int(record.get("Vibration", 0))
+    except (ValueError, TypeError):
+        vibration = 0
 
-        # Alerts
-        if float(row["Temperature"]) > 6:
-            print("⚠ ALERT: High Temperature")
+    try:
+        battery = int(record.get("Battery", 100))
+    except (ValueError, TypeError):
+        battery = 100
 
-        if int(row["Battery"]) < 85:
-            print("⚠ ALERT: Low Battery")
+    # Collect active alerts
+    alerts = []
+    if temp > TEMP_HIGH_LIMIT:
+        alerts.append(f"HIGH TEMP ({temp:.2f} °C > {TEMP_HIGH_LIMIT} °C)")
+    if battery < BATTERY_LOW_LIMIT:
+        alerts.append(f"LOW BATTERY ({battery}% < {BATTERY_LOW_LIMIT}%)")
+    if vibration > VIBRATION_HIGH_LIMIT:
+        alerts.append(f"HIGH VIBRATION ({vibration} > {VIBRATION_HIGH_LIMIT})")
 
-        count += 1
+    # Honest storage status based on actual connection flag
+    storage_status = "STORED SUCCESSFUL" if IS_SNOWFLAKE_CONNECTED else "NOT CONNECTED"
 
-        time.sleep(1)
-
-print("\n========================================")
-print("Consumer successfully processed all sensor records.")
-print("========================================")
+    # Clean individual sensor card
+    print(f"+--------------------------------------------------+")
+    print(f"| RECEIVED SENSOR RECORD #{count:<24} |")
+    print(f"+-------------------+------------------------------+")
+    print(f"| Container ID      | {container_id:<28} |")
+    print(f"| Temperature       | {temp:<25.2f} °C |")
+    print(f"| Humidity          | {humidity:<25.1f} %  |")
+    print(f"| Vibration         | {vibration:<28} |")
+    print(f"| Battery           | {battery:<25} %  |")
+    
+    if alerts:
+        print(f"+-------------------+------------------------------+")
+        for alert in alerts:
+            print(f"| ALERT             | {alert:<28} |")
+            
+    print(f"+-------------------+------------------------------+")
+    print(f"| Snowflake Storage | {storage_status:<28} |")
+    print(f"+-------------------+------------------------------+\n")

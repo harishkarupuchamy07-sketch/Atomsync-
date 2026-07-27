@@ -1,116 +1,78 @@
-import random
-import time
 import csv
-from datetime import datetime
-def generate_sensor_data(container_id):
-    commodity = "Avocado"
-    temperature = round(random.uniform(2.0, 8.0), 2)
-    humidity = round(random.uniform(40.0, 70.0), 2)
-    timestamp = datetime.now()
-    vibration = random.randint(1, 15)
-    battery = random.randint(80, 100)
+import json
+import time
+import random
+from datetime import datetime, timezone
+from kafka import KafkaProducer
 
-    return [
-        container_id,
-        commodity,
-        temperature,
-        humidity,
-        timestamp,
-        vibration,
-        battery
-    ]
-container_id = "ATM001"
+try:
+    producer = KafkaProducer(
+        bootstrap_servers=['localhost:9092'],
+        value_serializer=lambda v: json.dumps(v).encode('utf-8')
+    )
+    kafka_connected = True
+except Exception:
+    producer = None
+    kafka_connected = False
 
-commodity = "Avocado"
-temperature = round(random.uniform(2.0, 8.0), 2)
+TOPIC_NAME = 'sensor_telemetry'
 
-humidity = round(random.uniform(40.0, 70.0), 2)
+def run_simulation():
+    csv_file_path = 'sensor_data.csv'
+    
+    print("\n" + "="*50)
+    print("      ATMOSYNC PRODUCER: CONTAINER STREAM      ")
+    print("="*50)
+    
+    try:
+        with open(csv_file_path, mode='r', encoding='utf-8') as file:
+            reader = csv.DictReader(file)
+            count = 0
+            
+            for row in reader:
+                count += 1
+                
+                payload = {
+                    "Container_ID": row.get("Container_ID", f"ATM{count:04d}"),
+                    "Commodity": row.get("Commodity", "Avocado"),
+                    "Temperature": round(float(row.get("AveragePrice", row.get("Temperature", random.uniform(2.0, 10.0)))), 2),
+                    "Humidity": round(float(row.get("Humidity", random.uniform(50.0, 80.0))), 1),
+                    "Vibration": int(row.get("Vibration", random.randint(1, 15))),
+                    "Battery": int(row.get("Battery", random.randint(70, 100))),
+                    "Timestamp": datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
+                }
+                
+                # Send to Kafka with explicit status tracking
+                if producer and kafka_connected:
+                    try:
+                        producer.send(TOPIC_NAME, value=payload)
+                        kafka_status = "SENT TO KAFKA"
+                    except Exception:
+                        kafka_status = "NOT SENT"
+                else:
+                    kafka_status = "NOT SENT"
+                
+                # Print individual card with Kafka Transmission Status
+                print(f"+--------------------------------------------------+")
+                print(f"| CONTAINER RECORD #{count:<30} |")
+                print(f"+-------------------+------------------------------+")
+                print(f"| Container ID      | {payload['Container_ID']:<28} |")
+                print(f"| Temperature       | {payload['Temperature']:<25} Â°C |")
+                print(f"| Humidity          | {payload['Humidity']:<25} %  |")
+                print(f"| Vibration         | {payload['Vibration']:<28} |")
+                print(f"| Battery           | {payload['Battery']:<25} %  |")
+                print(f"+-------------------+------------------------------+")
+                print(f"| Kafka Status      | {kafka_status:<28} |")
+                print(f"+-------------------+------------------------------+\n")
+                
+                time.sleep(0.1)
+                
+            if producer:
+                producer.flush()
+            print(f"Completed streaming all {count} container records.")
 
-timestamp = datetime.now()
-vibration = random.randint(1, 15)
-battery = random.randint(80, 100)
-# Save sensor data into CSV
-with open("sensor_data.csv", "w", newline="") as file:
-    writer = csv.writer(file)
+    except FileNotFoundError:
+        print(f"ERROR: Dataset file '{csv_file_path}' not found.")
 
-    writer.writerow([
-        "Container ID",
-        "Commodity",
-        "Temperature",
-        "Humidity",
-        "Timestamp",
-        "Vibration",
-        "Battery"
-    ])
-
-    for i in range(2000):
-        container_id = f"ATM{i+1:04d}"
-        sensor = generate_sensor_data(container_id)
-        writer.writerow(sensor)
-print("2000 sensor records generated successfully!")
-# Data validation checks
-import os
-
-if os.path.exists("sensor_data.csv"):
-    print("Sensor data CSV created successfully!")
-
-with open("sensor_data.csv", "r") as file:
-    total_records = sum(1 for line in file) - 1  # excluding header
-
-print("Total records generated:", total_records)
-
-if total_records == 2000:
-    print("Data validation passed: 2000 records available")
-else:
-    print("Data validation failed")
-
-print("=" * 40)
-print("        ATMOSYNC SENSOR REPORT")
-print("=" * 40)
-
-print("Simulation Completed Successfully")
-print("Generated Records : 2000")
-print("Dataset Loaded Successfully")
-
-print()
-print("------ SAMPLE SENSOR DATA ------")
-
-print("Container ID :", container_id)
-
-print("Commodity :", commodity)
-
-print("Temperature :", temperature, "°C")
-
-print("Humidity :", humidity, "%")
-
-print("Timestamp :", timestamp)
-
-print("Vibration :", vibration)
-
-print("Battery :", battery, "%")
-if temperature > 6:
-    print("⚠ ALERT: High Temperature Detected!")
-
-if battery < 85:
-    print("⚠ ALERT: Low Battery Level!")
-
-print("\nReading Avocado Dataset...\n")
-
-with open("dataset/avocado.csv", "r", encoding="utf-8") as file:
-    reader = csv.DictReader(file)
-
-    count = 0
-
-    for row in reader:
-        print(row)
-        count += 1
-        if count == 5:
-            break
-
-
-
-
-
-
-
-
+if __name__ == "__main__":
+    run_simulation()
